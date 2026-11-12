@@ -1,0 +1,21 @@
+{
+  "context_window": {
+    "description": "上下文窗口",
+    "type": "string",
+    "options": ["Default", "256K", "512K", "900K"],
+    "default": "512K",
+    "hint": "默认 512K = 512000 tokens。超过 256K 需要已应用并通过检查的 agy 上下文补丁。Default 自动选择已验证的能力。保存后插件会重载、同步本插件的模型上限，新 agy 进程使用新设置。"
+  },
+  "replay_budget_bytes": {
+    "description": "历史回放预算（字节）",
+    "type": "int",
+    "default": 0,
+    "hint": "0 为自动：完整补丁下取窗口 tokens × 2，最多 2200000 字节；512K 时为 1024000 字节。未确认完整补丁时最多 160000 字节。可填写更小的正整数；这是会话重建时的文本字节预算，不是 token 数或完整历史保留保证。"
+  },
+  "patch_script": {
+    "description": "上下文补丁检查脚本",
+    "type": "string",
+    "default": "",
+    "hint": "可信本机 agy-patch.py 的绝对路径；留空查找 ~/.gemini/antigravity/tools/agy-patch.py。插件只以 --dry-run --no-env-fix 检查，不下载脚本、不修改二进制。agy 升级后检查不通过会阻止超出 256K 的请求。"
+  }
+}
