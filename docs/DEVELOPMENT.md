@@ -63,7 +63,9 @@ python tests/context_tests.py
 
 The fake CLI performs no Google authentication and contacts only the temporary test MCP server. Test logs and temporary roots are not release data. No real tokens or server access are needed for CI.
 
-GitHub Actions tests context policy and fake ACP runtime on Python 3.11–3.13, and runs the provider smoke test with AstrBot 4.29.4 on Python 3.12. Passing fake tests does not prove upstream long-context quality or other AstrBot version compatibility.
+[GitHub Actions 配置示例](tests.workflow.yml) 可用于在 Python 3.11–3.13 上测试上下文策略和 fake ACP，并在 Python 3.12 / AstrBot 4.29.4 上运行 provider smoke test。首次公开发布时，推送账号没有 `workflow` scope，因此该配置仅作为文档保留，仓库暂未启用 CI。具备相应权限后可将其放到 `.github/workflows/tests.yml`；不要把示例的存在当作 GitHub 测试已经通过。
+
+Passing fake tests does not prove upstream long-context quality or other AstrBot version compatibility.
 
 ## Optional helpers
 

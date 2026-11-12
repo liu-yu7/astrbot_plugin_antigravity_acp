@@ -21,7 +21,7 @@
 ### Public repository preparation
 
 - Added installation, context, troubleshooting, development, and security documentation.
-- Added MIT licensing with upstream attribution, dependency manifests, and GitHub Actions tests.
+- Added MIT licensing with upstream attribution, dependency manifests, and a GitHub Actions configuration example (not enabled in the initial public release).
 - Added repository metadata and exclusions for credentials, caches, logs, and runtime data.
 - Runtime behavior remains the deployed 0.2.0 implementation.
 

@@ -1,6 +1,5 @@
 # Antigravity ACP for AstrBot
 
-[![Tests](https://github.com/liu-yu7/astrbot_plugin_antigravity_acp/actions/workflows/tests.yml/badge.svg)](https://github.com/liu-yu7/astrbot_plugin_antigravity_acp/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 通过**本机官方 Antigravity CLI（`agy acp`）**，将账号可用的模型接入 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的服务提供商体系。
