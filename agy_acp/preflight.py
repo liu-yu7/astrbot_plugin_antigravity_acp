@@ -229,6 +229,9 @@ def build_env(home: str, proxy: str = "", extra_env: dict | None = None) -> dict
     for key, value in (extra_env or {}).items():
         if isinstance(key, str) and key and value is not None:
             env[key] = str(value)
+    # A managed, context-verified binary must not replace itself in the background.
+    # Operators can still upgrade explicitly outside this runtime, then reapply/verify the patch.
+    env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
     proxy = (proxy or "").strip()
     if proxy:
         for key in _PROXY_KEYS:

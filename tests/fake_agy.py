@@ -9,7 +9,9 @@ official agent, and follows directives embedded in prompt text:
     DENYCALL <tool> <json> a native-looking tool whose rawInput merely embeds the name
     SLEEP <ms>             wait before ending the turn
     MAXTOK                 end the first segment with max_tokens
+    NCALL <tool> <json>    use agy 1.5.8 explicit-name MCP metadata
     NOTICE                 stream an agent-side transport retry notice first
+    EXECUTION_FAILURE      stream a split terminal error with an end_turn result
 
 The lifecycle log (``$FAKE_AGY_LOG``, JSONL) records session/new, session/load,
 session/close and every prompt, so tests can prove session reuse.
@@ -135,12 +137,16 @@ class FakeAgy:
             "kind": "other",
             "rawInput": args,
         }
+        if structured == "named":
+            tool_call["name"] = f"mcp_astrbot_{name}"
+            tool_call["rawInput"] = {"toolSummary": "Diagnostic display summary", **args}
+            args = dict(tool_call["rawInput"])
         update = {"sessionUpdate": "tool_call", **tool_call}
-        if structured:
+        if structured is True:
             update.update({"mcpServerName": "astrbot", "mcpToolName": name})
         self.update(session, update)
         permission_request = dict(tool_call)
-        if structured:
+        if structured is True:
             permission_request.update({"mcpServerName": "astrbot", "mcpToolName": name})
         outcome = await self.request(
             "session/request_permission",
@@ -188,6 +194,10 @@ class FakeAgy:
 
     async def run_prompt(self, session: dict, text: str) -> dict:
         session["cancelled"] = False
+        if text.split("</astrbot_history>")[-1].strip() == "EXECUTION_FAILURE":
+            for part in (chr(10) + "⚠ Agent execution ", "terminated due ", "to error." + chr(10)):
+                self.update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": part}})
+            return {"stopReason": "end_turn", "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}
         self.update(session, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"thinking({session['level']})"}})
         if "NOTICE" in text:
             self.update(
@@ -201,6 +211,10 @@ class FakeAgy:
             if line.startswith("CALL "):
                 _, name, rest = line.split(" ", 2)
                 result = await self.run_tool_call(session, name, json.loads(rest))
+                output.append(f"RESULT({name})={result}")
+            elif line.startswith("NCALL "):
+                _, name, rest = line.split(" ", 2)
+                result = await self.run_tool_call(session, name, json.loads(rest), structured="named")
                 output.append(f"RESULT({name})={result}")
             elif line.startswith("DENYCALL "):
                 _, name, rest = line.split(" ", 2)

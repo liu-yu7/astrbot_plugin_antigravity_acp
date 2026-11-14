@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from .safety import adapt_astrbot_safety_prompt
+
 #: Server name under which AstrBot tools reach the agent; agy prefixes tool names with ``mcp_<server>_``.
 MCP_SERVER_NAME = "astrbot"
 #: Agent-visible prefix of every AstrBot tool.
@@ -240,7 +242,8 @@ def normalize_request(
                 message = _message_from(raw)
                 if message is not None:
                     messages.append(message)
-    return "\n\n".join(part for part in system_parts if part), messages
+    system = "\n\n".join(part for part in system_parts if part)
+    return adapt_astrbot_safety_prompt(system), messages
 
 
 # --------------------------------------------------------------------------- identity

@@ -217,7 +217,9 @@ class Turn:
             return
         if verdict.kind == "error":
             self.retry_notices += 1
-            self.agent_failure = AgyError(verdict.code, verdict.message, retryable=True)
+            self.agent_failure = AgyError(
+                verdict.code, verdict.message, retryable=verdict.code in ("TRANSPORT", "RATE_LIMIT")
+            )
             return
         if combined.strip():
             self.agent_failure = None
@@ -236,7 +238,9 @@ class Turn:
             return ""
         if verdict.kind == "error":
             self.retry_notices += 1
-            self.agent_failure = AgyError(verdict.code, verdict.message, retryable=True)
+            self.agent_failure = AgyError(
+                verdict.code, verdict.message, retryable=verdict.code in ("TRANSPORT", "RATE_LIMIT")
+            )
             return ""
         if self.agent_failure is not None and WARNING_PREFIX.match(held):
             return ""
@@ -961,6 +965,15 @@ class AntigravityRuntime:
 
         server = first(source.get("mcpServerName"), meta.get("mcpServerName"), meta.get("serverName"), meta.get("server"))
         tool = first(source.get("mcpToolName"), meta.get("mcpToolName"), meta.get("toolName"), meta.get("tool"))
+        # agy 1.5.8 reports MCP identity in the explicit tool name, not mcpServerName.
+        # Never infer identity from a title or raw arguments, or from native tool kinds.
+        name = source.get("name")
+        if source.get("kind") == "other" and isinstance(name, str) and name.startswith(H.AGENT_TOOL_PREFIX):
+            named_tool = name[len(H.AGENT_TOOL_PREFIX):]
+            if named_tool:
+                if server not in (None, H.MCP_SERVER_NAME) or tool not in (None, named_tool):
+                    return "__mcp_identity_conflict__", None
+                server, tool = H.MCP_SERVER_NAME, named_tool
         return server, tool
 
     def _record_reported_tool_call(self, conv: Conversation, update: dict) -> str | None:
@@ -1075,6 +1088,11 @@ class AntigravityRuntime:
             return await self._await_call(turn, call)
         if name not in conv.tool_names:
             return error_result(f"AstrBot has no tool named {name}.")
+        # The new CLI includes its display-only summary in MCP arguments.
+        # Preserve it only when the actual AstrBot schema declares that parameter.
+        schema = next((tool.get("inputSchema", {}) for tool in conv.tools if tool["name"] == name), {})
+        if "toolSummary" in arguments and "toolSummary" not in schema.get("properties", {}):
+            arguments = {key: value for key, value in arguments.items() if key != "toolSummary"}
         return await self._await_call(turn, turn.park(name, arguments))
 
     async def _await_call(self, turn: Turn, call: ParkedCall) -> dict:

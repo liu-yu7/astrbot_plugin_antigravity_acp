@@ -28,6 +28,8 @@ NETWORK_ISSUE_MESSAGE = "There was a network issue connecting to the server, ple
 _NETWORK_ISSUE_HEAD = "there was a network issue connecting to the server, please try again"
 HIGH_TRAFFIC_MESSAGE = "Our servers are experiencing high traffic right now, please try again in a minute."
 _HIGH_TRAFFIC_HEAD = "our servers are experiencing high traffic right now, please try again in a minute"
+EXECUTION_FAILURE_MESSAGE = "Agent execution terminated due to error."
+_EXECUTION_FAILURE_HEAD = "agent execution terminated due to error"
 
 _RETRIES_ONLY = re.compile(r"^retries remaining:\s*\d+$", re.IGNORECASE)
 _RETRIES_TAIL = re.compile(r"\s*retries remaining:\s*\d*\s*$", re.IGNORECASE)
@@ -115,4 +117,9 @@ def classify_agent_notice(raw: str, final: bool = False) -> NoticeVerdict:
     traffic = _match_terminal_notice(raw, text, _HIGH_TRAFFIC_HEAD, "RATE_LIMIT", HIGH_TRAFFIC_MESSAGE, final)
     if traffic is not None:
         return traffic
+    execution = _match_terminal_notice(
+        raw, text, _EXECUTION_FAILURE_HEAD, "UPSTREAM_EXECUTION", EXECUTION_FAILURE_MESSAGE, final
+    )
+    if execution is not None:
+        return execution
     return _EMIT

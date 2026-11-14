@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 — 2026-11-14
+
+### Fixed
+
+- Disable native agy background auto-updates for managed ACP processes with `AGY_CLI_DISABLE_AUTO_UPDATE=true`, so verified context patches are not silently overwritten. Explicit administrator upgrades remain available and require patch re-verification.
+- Support agy 1.5.8 explicit MCP tool names while rejecting conflicting identities and native-tool impersonation. Remove display-only `toolSummary` arguments unless the AstrBot tool schema declares them.
+- Treat split `Agent execution terminated due to error.` notices as upstream failures rather than successful assistant text; do not blindly retry these unspecified failures.
+- Adapt only the exact known AstrBot default Safe Mode system-prompt prefix to equivalent safety wording for ACP compatibility. Preserve every safety constraint, custom suffix, persona, tool contract, and user message; leave unknown/custom templates unchanged. This addresses the reproduced template-specific 429, not every upstream rate-limit or quota error.
+
+### Tests
+
+- Add regression coverage for managed environment overrides, agy 1.5.8 MCP metadata and tool arguments, split terminal failures, and safety-policy preservation.
+- Check the compatibility template against the real AstrBot 4.29.4 constant in the provider smoke test.
+
 ## 0.2.0 — 2026-11-12
 
 ### Added

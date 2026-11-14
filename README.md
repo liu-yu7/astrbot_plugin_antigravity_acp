@@ -129,6 +129,8 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent agy acp --login
 
 **字节回放预算不等于 token 数。** 它用于重建会话时选择保留哪些文本历史，不保证完整保留所有消息，也不扩大上游模型的实际能力。详见 [上下文与补丁](docs/CONTEXT.md)。
 
+**原生自动更新保护**：插件为 agy 子进程固定设置 `AGY_CLI_DISABLE_AUTO_UPDATE=true`，避免 CLI 后台自动替换二进制、覆盖已经核验的上下文补丁。手动升级仍由管理员执行；升级后先重新应用并核验补丁，再启动 ACP。终端查询也建议显式加上该环境变量，例如 `AGY_CLI_DISABLE_AUTO_UPDATE=true agy models`。插件不会修改终端的登录资料或 shell 配置。
+
 ## 管理指令
 
 ```text
@@ -149,6 +151,8 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent agy acp --login
 - ACP 日志、AstrBot 聊天历史、授权码消息和运行配置可能包含敏感数据。提交日志前必须脱敏，**不要上传运行数据目录**。
 
 本项目不是 Google / Antigravity 或 AstrBot 的官方插件，也不改变账号套餐、配额或服务条款。
+
+**Safe Mode 提示兼容**：已知 AstrBot 默认安全模板可能使原生 Antigravity 对正常完整请求返回 429。适配器仅精确识别这一完整默认前缀，转换为保留全部安全规则的等价表述；不关闭安全模式，不删除用户自定义规则、角色设定、技能或工具。未知模板保持原样。
 
 ## 排障与开发
 

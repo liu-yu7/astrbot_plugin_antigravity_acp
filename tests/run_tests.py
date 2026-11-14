@@ -23,6 +23,8 @@ sys.path.insert(0, ROOT)
 from agy_acp import history as H  # noqa: E402
 from agy_acp.context import ContextSettings  # noqa: E402
 from agy_acp.notices import classify_agent_notice  # noqa: E402
+from agy_acp.preflight import build_env  # noqa: E402
+from agy_acp.safety import ACP_SAFE_POLICY, ASTRBOT_SAFE_MODE_PROMPT, adapt_astrbot_safety_prompt  # noqa: E402
 from agy_acp.runtime import (  # noqa: E402
     AgyError,
     AntigravityRuntime,
@@ -153,6 +155,39 @@ async def test_notices(_h: Harness) -> None:
     check(classify_agent_notice(cut).kind in ("drop", "hold"), "output-limit notice is not emitted")
     quoted = "There was a network issue connecting to the server, please try again. That sentence is what agy prints."
     check(classify_agent_notice(quoted, True).kind == "emit", "a reply quoting the notice is emitted")
+    terminal = "Agent execution terminated due to error."
+    for marked in (terminal, chr(10) + "⚠ " + terminal + chr(10)):
+        verdict = classify_agent_notice(marked, True)
+        check(verdict.kind == "error" and verdict.code == "UPSTREAM_EXECUTION", "execution failure is not successful text")
+    check(classify_agent_notice("⚠ Agent execution term").kind == "hold", "split execution notice held")
+    check(classify_agent_notice(terminal + " This is a quoted diagnostic.", True).kind == "emit", "explained notice remains model text")
+
+
+async def test_managed_update_environment(_h: Harness) -> None:
+    env = build_env("/tmp/test-home", "http://127.0.0.1:7890", {"AGY_CLI_DISABLE_AUTO_UPDATE": "0", "CUSTOM_SETTING": "kept"})
+    check(env["AGY_CLI_DISABLE_AUTO_UPDATE"] == "true", "managed CLI auto-update disabled even with inherited override")
+    check(env["CUSTOM_SETTING"] == "kept", "unrelated environment preserved")
+    check(env["HTTPS_PROXY"] == "http://127.0.0.1:7890", "proxy preserved")
+
+
+async def test_safety_policy_compatibility(_h: Harness) -> None:
+    suffix = chr(10) + "# Persona: unchanged" + chr(10) + "Extra custom safety rule: keep this too."
+    original = ASTRBOT_SAFE_MODE_PROMPT + suffix
+    adapted = adapt_astrbot_safety_prompt(original)
+    check(adapted == ACP_SAFE_POLICY + suffix, "only exact default prefix adapted; all suffix bytes retained")
+    check(adapt_astrbot_safety_prompt(adapted) == adapted, "safety adaptation is idempotent")
+    for constraint in ("sexual", "violent", "extremist", "hateful", "illegal", "harmful", "healthy", "constructive", "positive", "real-world politics", "sensitive controversial", "subordinate", "circumvent", "decline politely", "safe alternative"):
+        check(constraint in ACP_SAFE_POLICY, "safety constraint retained: " + constraint)
+    custom = original.replace("Avoid sexual", "Avoid explicit sexual", 1)
+    check(adapt_astrbot_safety_prompt(custom) == custom, "custom safety policies not guessed or stripped")
+    quote = "Quoted text: " + original
+    check(adapt_astrbot_safety_prompt(quote) == quote, "non-prefix quoted template unchanged")
+    crlf = ASTRBOT_SAFE_MODE_PROMPT.replace(chr(10), chr(13) + chr(10))
+    check(adapt_astrbot_safety_prompt(crlf + suffix) == ACP_SAFE_POLICY + suffix, "CRLF prefix supported without changing suffix")
+    system, msgs = H.normalize_request(system_prompt=original, prompt="user input unchanged")
+    check(system == adapted and msgs[0].text == "user input unchanged", "classic provider path adapted")
+    system, msgs = H.normalize_request(contexts=[{"role": "system", "content": original}, {"role": "user", "content": ASTRBOT_SAFE_MODE_PROMPT}])
+    check(system == adapted and msgs[0].text == ASTRBOT_SAFE_MODE_PROMPT, "agent system adapted; user content unchanged")
 
 
 async def test_history(_h: Harness) -> None:
@@ -261,6 +296,20 @@ async def test_plain_chat_and_reuse(h: Harness) -> None:
     check(len([e for e in h.events(mark) if e["op"] == "new"]) == 1, "a regenerated answer (no new input) rebuilds")
 
 
+async def test_execution_failure(h: Harness) -> None:
+    mark = h.mark()
+    try:
+        await collect(h.runtime, request("terminal-failure", [user("EXECUTION_FAILURE")]))
+        raise AssertionError("terminal failure was treated as a successful response")
+    except AgyError as exc:
+        check(exc.code == "UPSTREAM_EXECUTION", "terminal failure reaches the provider as a stable error")
+        check(not exc.retryable, "unknown upstream failure does not trigger blind extra retries")
+    prompts = [e for e in h.events(mark) if e["op"] == "prompt"]
+    check(len(prompts) == 1, "terminal failure not re-sent")
+    recovered = await collect(h.runtime, request("terminal-failure", [user("normal after failure")]))
+    check(recovered["text"].endswith("normal after failure"), "failed session recovers on the next request")
+
+
 async def test_images(h: Harness) -> None:
     mark = h.mark()
     await collect(h.runtime, request("img", [user("look", images=["data:image/png;base64,aGk="])]))
@@ -299,6 +348,25 @@ async def test_parallel_tools(h: Harness) -> None:
     results = [tool(c.id, f"res-{c.name}") for c in calls]
     final = await collect(h.runtime, request("t2", [ask, assistant("", calls), *results], tools=TOOLS))
     check("RESULT(get_weather)=res-get_weather" in final["text"] and "RESULT(roll)=res-roll" in final["text"], f"both results delivered: {final['text']!r}")
+
+
+async def test_named_tool_metadata(h: Harness) -> None:
+    identity = h.runtime._tool_identity
+    check(identity({"kind": "other", "name": "mcp_astrbot_get_weather"}) == ("astrbot", "get_weather"), "new explicit MCP name recognized")
+    check(identity({"kind": "execute", "name": "mcp_astrbot_get_weather"}) == (None, None), "native execution name cannot masquerade as MCP")
+    check(identity({"kind": "other", "title": "mcp_astrbot_get_weather", "rawInput": {"name": "mcp_astrbot_get_weather"}}) == (None, None), "titles and raw input never authorize MCP")
+    check(identity({"kind": "other", "name": "mcp_astrbot_get_weather", "mcpToolName": "roll"})[0] == "__mcp_identity_conflict__", "conflicting metadata refused")
+    ask = user('NCALL get_weather {"city":"Paris"}')
+    first = await collect(h.runtime, request("named-tools", [ask], tools=TOOLS))
+    calls = first["calls"]
+    check(calls is not None and len(calls) == 1, "new metadata authorizes the offered tool")
+    check(calls[0].arguments == {"city": "Paris"}, "undeclared display summary not passed to AstrBot")
+    final = await collect(h.runtime, request("named-tools", [ask, assistant("", calls), tool(calls[0].id, "sunny")], tools=TOOLS))
+    check(final["text"] == "RESULT(get_weather)=sunny", "new metadata tool roundtrip")
+    declared = [{"name": "summary_tool", "description": "test", "inputSchema": {"type": "object", "properties": {"toolSummary": {"type": "string"}}}}]
+    got = await collect(h.runtime, request("declared-summary", [user('NCALL summary_tool {"toolSummary":"user value"}')], tools=declared))
+    check(got["calls"][0].arguments["toolSummary"] == "user value", "explicitly declared summary argument preserved")
+    await collect(h.runtime, request("declared-summary", [user('NCALL summary_tool {"toolSummary":"user value"}'), assistant("", got["calls"]), tool(got["calls"][0].id, "ok")], tools=declared))
 
 
 async def test_permission_denied(h: Harness) -> None:
@@ -422,11 +490,15 @@ async def test_context_policy_and_replay(h: Harness) -> None:
 
 TESTS = [
     test_notices,
+    test_managed_update_environment,
+    test_safety_policy_compatibility,
     test_history,
     test_plain_chat_and_reuse,
+    test_execution_failure,
     test_images,
     test_tool_flow,
     test_parallel_tools,
+    test_named_tool_metadata,
     test_permission_denied,
     test_notice_and_continuation,
     test_relay,

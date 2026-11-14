@@ -16,6 +16,7 @@ agy_acp/
   context.py            Window policy and read-only patch inspection
   preflight.py          Isolated agent/settings and credential-file preparation
   notices.py            Agent retry/failure notice handling
+  safety.py             Exact default safety-prefix compatibility adaptation
 tests/                  Fake CLI, policy tests, and provider smoke test
 tools/                  Optional local diagnostics/configuration helpers
 ```

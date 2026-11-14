@@ -107,6 +107,15 @@ async def run(root: str) -> None:
     provider_module.configure_context({"patch_script": os.path.join(PLUGIN_ROOT, "tests", "fake_context_check.py")})
     await provider_module.sync_model_contexts(manager)
 
+    from astrbot.core.astr_main_agent_resources import LLM_SAFETY_MODE_SYSTEM_PROMPT
+    from importlib import import_module
+    safety = import_module(provider_module.__package__ + ".safety")
+    check(LLM_SAFETY_MODE_SYSTEM_PROMPT == safety.ASTRBOT_SAFE_MODE_PROMPT, "known safety template matches the real AstrBot constant")
+    suffix = chr(10) + "ROLE UNCHANGED"
+    built = provider._build_request(prompt="safe test", session_id="safe", image_urls=None, func_tool=None, contexts=None, system_prompt=LLM_SAFETY_MODE_SYSTEM_PROMPT + suffix, tool_calls_result=None, model=None, extra_user_content_parts=None, conversation_id=None)
+    check(built.system == safety.ACP_SAFE_POLICY + suffix, "real adapter retains safety and persona while adapting the default prefix")
+    check(built.messages[-1].text == "safe test", "adapter leaves user content unchanged")
+
     print("classic call style (prompt + system_prompt)")
     response = await provider.text_chat(prompt="hello", system_prompt="SYS", session_id="s1")
     check(response.role == "assistant" and response.completion_text == "echo:gemini-3.8-flash:high:hello", f"reply: {response.completion_text!r}")
