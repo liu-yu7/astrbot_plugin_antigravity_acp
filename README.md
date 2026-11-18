@@ -24,7 +24,7 @@
 | 项目 | 要求 / 已验证环境 |
 |---|---|
 | AstrBot | 已验证 **4.29.4**；其他版本尚未确认 |
-| Antigravity CLI | 代码要求 `agy >= 1.4.12`；真实调用及上下文补丁检查已验证 **1.5.5** |
+| Antigravity CLI | 代码要求 `agy >= 1.4.12`；真实调用及上下文补丁检查已验证 **1.5.8** |
 | Python | 语法要求 **3.10+**；真实运行已验证 **3.12** |
 | 操作系统 | 完整运行及集成测试已验证 **Linux arm64**；其他平台完整运行尚未确认 |
 | Python 依赖 | `aiohttp`，通常由 AstrBot 环境提供；见 [requirements.txt](requirements.txt) |

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any, Literal
 
 import astrbot.core.message.components as Comp
@@ -312,35 +313,38 @@ class ProviderAntigravityACP(Provider):
             reasoning: list[str] = []
             emitted = False
             try:
-                async for kind, payload in runtime.stream(request):
-                    if kind == "text":
-                        emitted = True
-                        text.append(payload)
-                        yield LLMResponse(
-                            "assistant", result_chain=MessageChain(chain=[Comp.Plain(payload)]), is_chunk=True
-                        )
-                    elif kind == "reasoning":
-                        emitted = True
-                        reasoning.append(payload)
-                        yield LLMResponse("assistant", completion_text="", reasoning_content=payload, is_chunk=True)
-                    elif kind == "tool_calls":
-                        yield LLMResponse(
-                            "tool",
-                            completion_text="".join(text),
-                            tools_call_name=[call.name for call in payload],
-                            tools_call_args=[call.arguments for call in payload],
-                            tools_call_ids=[call.id for call in payload],
-                            reasoning_content="".join(reasoning) or None,
-                        )
-                        return
-                    elif kind == "finish":
-                        yield LLMResponse(
-                            "assistant",
-                            completion_text="".join(text),
-                            reasoning_content="".join(reasoning) or None,
-                            usage=self._usage(payload),
-                        )
-                        return
+                async with aclosing(runtime.stream(request)) as stream:
+                    async for kind, payload in stream:
+                        if kind == "text":
+                            emitted = True
+                            text.append(payload)
+                            yield LLMResponse(
+                                "assistant", result_chain=MessageChain(chain=[Comp.Plain(payload)]), is_chunk=True
+                            )
+                        elif kind == "reasoning":
+                            emitted = True
+                            reasoning.append(payload)
+                            yield LLMResponse("assistant", completion_text="", reasoning_content=payload, is_chunk=True)
+                        elif kind == "tool_calls":
+                            await stream.aclose()
+                            yield LLMResponse(
+                                "tool",
+                                completion_text="".join(text),
+                                tools_call_name=[call.name for call in payload],
+                                tools_call_args=[call.arguments for call in payload],
+                                tools_call_ids=[call.id for call in payload],
+                                reasoning_content="".join(reasoning) or None,
+                            )
+                            return
+                        elif kind == "finish":
+                            await stream.aclose()
+                            yield LLMResponse(
+                                "assistant",
+                                completion_text="".join(text),
+                                reasoning_content="".join(reasoning) or None,
+                                usage=self._usage(payload),
+                            )
+                            return
                 return
             except AgyError as exc:
                 if exc.retryable and not emitted and attempt < attempts:

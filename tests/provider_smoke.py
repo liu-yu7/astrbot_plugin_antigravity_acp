@@ -116,11 +116,18 @@ async def run(root: str) -> None:
     check(built.system == safety.ACP_SAFE_POLICY + suffix, "real adapter retains safety and persona while adapting the default prefix")
     check(built.messages[-1].text == "safe test", "adapter leaves user content unchanged")
 
+    from astrbot.core.astr_main_agent import _build_local_mode_prompt
+    prompts = import_module(provider_module.__package__ + ".prompts")
+    check(_build_local_mode_prompt() == prompts.ASTRBOT_LOCAL_MODE_PROMPT, "known host template matches the real AstrBot Linux template")
+
     print("classic call style (prompt + system_prompt)")
     response = await provider.text_chat(prompt="hello", system_prompt="SYS", session_id="s1")
     check(response.role == "assistant" and response.completion_text == "echo:gemini-3.8-flash:high:hello", f"reply: {response.completion_text!r}")
     check(response.reasoning_content == "thinking(high)", "reasoning mapped")
     check(response.usage is not None and (response.usage.input_other, response.usage.input_cached, response.usage.output) == (600, 400, 50), "usage mapped")
+
+    check(all(not conv.lock.locked() for conv in provider.runtime._conversations.values()), "completed adapter calls release conversation locks immediately")
+    check(not provider.runtime._ephemerals, "completed adapter calls release keyless sessions immediately")
 
     print("agent-runner call style (contexts + func_tool, streaming)")
     tools = ToolSet()
@@ -128,7 +135,7 @@ async def run(root: str) -> None:
         FunctionTool(
             name="get_weather",
             description="Get the current weather of a city.",
-            parameters={"type": "object", "properties": {"city": {"type": "string", "description": "City name"}}, "required": ["city"]},
+            parameters={"type": "object", "properties": {"city": {"type": "string", "description": "City name"}, "limit": {"type": "integer", "enum": [0]}}, "required": ["city"]},
             handler=None,
         )
     )
@@ -141,6 +148,10 @@ async def run(root: str) -> None:
     call = finals[0]
     check(call.tools_call_name == ["get_weather"] and call.tools_call_args == [{"city": "Paris"}], f"tool call: {call.tools_call_name} {call.tools_call_args}")
     check(any(c.reasoning_content for c in chunks), "reasoning streamed as chunks")
+    conv = next(c for key, c in provider.runtime._conversations.items() if key.startswith("conv-1|"))
+    wire_limit = conv.tools[0]["inputSchema"]["properties"]["limit"]
+    check(wire_limit == {"type": "integer", "minimum": 0, "maximum": 0}, "native ToolSet numeric enum reaches MCP as exact numeric bounds")
+    check(tools.get_tool("get_weather").parameters["properties"]["limit"]["enum"] == [0], "adapter does not mutate host ToolSet schemas")
 
     contexts += [
         AssistantMessageSegment(content=None, tool_calls=call.to_openai_tool_calls_model()),
@@ -164,6 +175,11 @@ async def run(root: str) -> None:
     response = await provider.text_chat(prompt="look", image_urls=[f"base64://{PNG_1X1}"], session_id="s-img")
     prompts = [e for e in fake_events(root) if e["op"] == "prompt"]
     check(prompts[-1]["images"] == 1, "image resolved by AstrBot and sent as an ACP image block")
+
+    print("keyless adapter cleanup")
+    await provider.text_chat(prompt="one-off without a session id")
+    check(not provider.runtime._ephemerals, "keyless adapter session released before returning")
+    check(all(not conv.lock.locked() for conv in provider.runtime._conversations.values()), "all completed adapter locks released")
 
     print("catalog and health check")
     models = await provider.get_models()

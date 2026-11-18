@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.2 — 2026-11-18
+
+### Fixed
+
+- Project MCP tool enums that agy 1.5.8 cannot convert to Gemini schemas: numeric `enum: [0]` otherwise becomes an empty protobuf enum string and rejects the entire request with `INVALID_ARGUMENT (400)`. Keep integer/number types; numeric singletons use exact minimum/maximum bounds. Leave ordinary nonempty string enums unchanged.
+- Keep every original projected enum contract in the model's system instructions, including booleans, mixed/nullable values and nested schemas. Host tool metadata and runtime validators remain unchanged; this does not disable tools, permissions or memory retrieval.
+- Close the runtime async stream before returning a tool-call or final response, and close it deterministically on cancellation/errors. Completed requests no longer retain conversation locks or keyless sessions while awaiting async-generator finalization.
+- Preserve explicit `RESOURCE_EXHAUSTED (code 429)` retry notices as actionable errors and stop resubmitting the same rejected request. Hold split notices until their bodies arrive; do not misclassify quoted error codes as failures.
+- Restate only the exact stock AstrBot 4.29.4 Linux host-tools paragraph for ACP compatibility. Keep file/execution permissions, POSIX syntax, session control actions, real line-feed input and the prohibition on detached long-running commands. Preserve surrounding safety policy, skill inventory/rules, persona and tool contracts; leave custom/other-OS templates unchanged.
+
+### Tests
+
+- 20 runtime regressions, 8 dependency-free schema tests, 14 context tests, and the AstrBot provider smoke test pass on Linux arm64 / Python 3.12 / AstrBot 4.29.4.
+- Cover numeric zero, nested schemas, defaults/examples, compaction, original allowed-value preservation, native ToolSet conversion and MCP session reuse.
+- Reproduce the old adapter's delayed lock release; cover deterministic closure, keyless cleanup, split 429 notices, early failure without replay and recovery on unrelated requests.
+- Verify exact host-template matching against AstrBot and preservation of every host constraint.
+- Real agy 1.5.8 Gemini validation includes a numeric-enum old/new comparison, two full WebChat turns with fallback disabled, and an echo-tool roundtrip preserving integer zero. Full-window 512K loading and other platforms remain untested.
+
 ## 0.2.1 — 2026-11-14
 
 ### Fixed

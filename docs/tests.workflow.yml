@@ -30,6 +30,8 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Context policy tests
         run: python tests/context_tests.py
+      - name: Schema projection tests
+        run: python tests/schema_tests.py
       - name: Fake ACP regression tests
         run: python tests/run_tests.py
 

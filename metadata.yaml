@@ -2,5 +2,5 @@ name: astrbot_plugin_antigravity_acp
 display_name: Antigravity (agy acp)
 desc: 通过官方 Antigravity CLI（agy acp）把 Gemini 模型接入 AstrBot；登录态留在官方进程里，不提取 token、不经第三方网关。
 author: liu-yu7
-version: 0.2.1
+version: 0.2.2
 repo: https://github.com/liu-yu7/astrbot_plugin_antigravity_acp

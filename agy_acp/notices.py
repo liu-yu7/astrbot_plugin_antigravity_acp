@@ -105,7 +105,17 @@ def classify_agent_notice(raw: str, final: bool = False) -> NoticeVerdict:
     if output_limit == "hold":
         return _EMIT if final else _HOLD
     if _AGENT_RETRY_NOTICE.match(raw):
-        return _DROP
+        # This is a transport status notice, not model text. agy otherwise
+        # retries the same rejected request eight times before a generic error.
+        if re.search(r"\bRESOURCE_EXHAUSTED\s*\(code\s+429\)", raw, re.IGNORECASE):
+            return NoticeVerdict(
+                "error", "RESOURCE_EXHAUSTED",
+                "Antigravity 上游 RESOURCE_EXHAUSTED (429)：当前请求被资源限制拒绝；"
+                "这不等于账号总额度耗尽。已停止重复提交，由 AstrBot 按既有备用配置处理。",
+            )
+        # Hold a split notice until its body arrives, rather than leaking the
+        # second chunk into the response or losing its structured error code.
+        return _DROP if final or raw.endswith(("\n", "\r")) else _HOLD
     if not final and (WARNING_PREFIX.match(raw) or _AGENT_RETRY_PREFIX.match(raw.strip())):
         return _HOLD
     text = _notice_text(raw)

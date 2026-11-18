@@ -163,6 +163,25 @@ async def test_notices(_h: Harness) -> None:
     check(classify_agent_notice(terminal + " This is a quoted diagnostic.", True).kind == "emit", "explained notice remains model text")
 
 
+async def test_resource_notice(h: Harness) -> None:
+    notice = "\n⚠ API error (attempt 1): RESOURCE_EXHAUSTED (code 429): Resource exhausted.\n"
+    verdict = classify_agent_notice(notice)
+    check(verdict.kind == "error" and verdict.code == "RESOURCE_EXHAUSTED", "explicit upstream 429 retains its code")
+    check(classify_agent_notice("⚠ API error (attempt 1): RESO").kind == "hold", "split retry body held")
+    check(classify_agent_notice("A quoted RESOURCE_EXHAUSTED (code 429) error.", True).kind == "emit", "model quotation is not a rate limit")
+    mark = h.mark()
+    began = asyncio.get_running_loop().time()
+    try:
+        await collect(h.runtime, request("resource-failure", [user("RESOURCE_FAILURE")]))
+        raise AssertionError("429 was treated as model output")
+    except AgyError as exc:
+        check(exc.code == "RESOURCE_EXHAUSTED" and not exc.retryable, "429 does not resubmit rejected request")
+    check(asyncio.get_running_loop().time() - began < 1.5, "429 reported before native terminal failure")
+    check(len([e for e in h.events(mark) if e["op"] == "prompt"]) == 1, "one prompt for rejected request")
+    result = await collect(h.runtime, request("resource-failure", [user("normal after resource limit")]))
+    check(result["text"].endswith("normal after resource limit"), "unrelated next request is not globally disabled")
+
+
 async def test_managed_update_environment(_h: Harness) -> None:
     env = build_env("/tmp/test-home", "http://127.0.0.1:7890", {"AGY_CLI_DISABLE_AUTO_UPDATE": "0", "CUSTOM_SETTING": "kept"})
     check(env["AGY_CLI_DISABLE_AUTO_UPDATE"] == "true", "managed CLI auto-update disabled even with inherited override")
@@ -188,6 +207,24 @@ async def test_safety_policy_compatibility(_h: Harness) -> None:
     check(system == adapted and msgs[0].text == "user input unchanged", "classic provider path adapted")
     system, msgs = H.normalize_request(contexts=[{"role": "system", "content": original}, {"role": "user", "content": ASTRBOT_SAFE_MODE_PROMPT}])
     check(system == adapted and msgs[0].text == ASTRBOT_SAFE_MODE_PROMPT, "agent system adapted; user content unchanged")
+
+
+async def test_local_prompt_compatibility(_h: Harness) -> None:
+    from agy_acp.prompts import ASTRBOT_LOCAL_MODE_PROMPT, ACP_LOCAL_MODE_POLICY, adapt_astrbot_local_prompt
+    original = "ROLE AND SKILLS UNCHANGED\n" + ASTRBOT_LOCAL_MODE_PROMPT + "\nTOOLS UNCHANGED"
+    expected = "ROLE AND SKILLS UNCHANGED\n" + ACP_LOCAL_MODE_POLICY + "\nTOOLS UNCHANGED"
+    check(adapt_astrbot_local_prompt(original) == expected, "exact host paragraph adapted; surrounding text unchanged")
+    check(adapt_astrbot_local_prompt(expected) == expected, "host adaptation is idempotent")
+    for constraint in ("file and execution permissions", "Linux", "Unix-like", "POSIX-compatible", "managed session", "astrbot_shell_session", "raw text", "complete lines", "interrupt", "terminate", "write_line", "real line feed", "never", "`&`", "`nohup`", "detachment wrapper"):
+        check(constraint in ACP_LOCAL_MODE_POLICY, "host constraint retained: " + constraint)
+    custom = original.replace("Use POSIX-compatible", "Only use POSIX-compatible", 1)
+    check(adapt_astrbot_local_prompt(custom) == custom, "custom host instructions not guessed")
+    quoted = "Quoted template: " + ASTRBOT_LOCAL_MODE_PROMPT
+    check(adapt_astrbot_local_prompt(quoted) == quoted, "inline quoted template unchanged")
+    windows = original.replace("Linux", "Windows")
+    check(adapt_astrbot_local_prompt(windows) == windows, "unverified operating system not transformed")
+    system, messages = H.normalize_request(contexts=[{"role":"system","content":original},{"role":"user","content":original}])
+    check(system == expected and messages[0].text == original, "system only adapted; user input unchanged")
 
 
 async def test_history(_h: Harness) -> None:
@@ -252,6 +289,23 @@ async def test_history(_h: Harness) -> None:
 
 
 # ------------------------------------------------------------------- e2e tests
+
+
+async def test_bridge_numeric_enums(h: Harness) -> None:
+    tools = H.raw_bridge_tools([{"function": {"name": "diagnostic", "parameters": {
+        "type": "object", "properties": {"limit": {"type": "integer", "enum": [0]}},
+    }}}])
+    first = await collect(h.runtime, request("schema-numeric", [user("schema check")], tools=tools))
+    conv = h.runtime._conversations[f"schema-numeric|{H.digest(tools)[:8]}"]
+    wire = h.runtime.list_tools(conv.tenant_key)[0]["inputSchema"]["properties"]["limit"]
+    check("enum" not in wire and wire["type"] == "integer", "MCP lists a typed numeric schema without invalid enum")
+    check((wire["minimum"], wire["maximum"]) == (0, 0), "zero remains the only allowed numeric value")
+    check(tools[0]["inputSchema"]["properties"]["limit"]["enum"] == [0], "original host schema stays intact")
+    advertised_system = next(e["system"] for e in reversed(h.events()) if e["op"] == "new")
+    check('"enum": [0]' in advertised_system, "original enum contract reaches the model system prompt")
+    mark = h.mark()
+    await collect(h.runtime, request("schema-numeric", [user("schema check"), assistant(first["text"]), user("next")], tools=tools))
+    check(not any(e["op"] == "new" for e in h.events(mark)), "normalized wire schema does not spuriously rebuild sessions")
 
 
 async def test_plain_chat_and_reuse(h: Harness) -> None:
@@ -492,9 +546,12 @@ TESTS = [
     test_notices,
     test_managed_update_environment,
     test_safety_policy_compatibility,
+    test_local_prompt_compatibility,
     test_history,
+    test_bridge_numeric_enums,
     test_plain_chat_and_reuse,
     test_execution_failure,
+    test_resource_notice,
     test_images,
     test_tool_flow,
     test_parallel_tools,

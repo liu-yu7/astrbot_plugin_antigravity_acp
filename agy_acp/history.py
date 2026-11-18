@@ -8,6 +8,7 @@ user input; tool calls keep the agent-visible ``mcp_astrbot_`` names.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from .safety import adapt_astrbot_safety_prompt
+from .prompts import adapt_astrbot_local_prompt
 
 #: Server name under which AstrBot tools reach the agent; agy prefixes tool names with ``mcp_<server>_``.
 MCP_SERVER_NAME = "astrbot"
@@ -243,7 +245,7 @@ def normalize_request(
                 if message is not None:
                     messages.append(message)
     system = "\n\n".join(part for part in system_parts if part)
-    return adapt_astrbot_safety_prompt(system), messages
+    return adapt_astrbot_local_prompt(adapt_astrbot_safety_prompt(system)), messages
 
 
 # --------------------------------------------------------------------------- identity
@@ -330,12 +332,50 @@ def _wire_bytes(tool: dict) -> int:
     return len(json.dumps(tool, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
+def normalize_bridge_schema(schema: Any) -> Any:
+    """Project only enums agy's Gemini converter cannot represent.
+
+    Gemini enums must contain nonempty strings. In agy 1.5.8 a numeric
+    member such as ``0`` becomes an empty protobuf string and rejects the
+    entire request. Keep types and other constraints, express numeric
+    singletons as exact bounds, and retain the original enum contract in
+    ``render_full_tool_contracts``. Never mutate host tool metadata or walk
+    instance data such as defaults/examples as if it were a schema.
+    """
+    if not isinstance(schema, dict):
+        return copy.deepcopy(schema)
+    out = copy.deepcopy(schema)
+    for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+        if isinstance(out.get(key), dict):
+            out[key] = {name: normalize_bridge_schema(child) for name, child in out[key].items()}
+    for key in ("items", "additionalProperties", "unevaluatedProperties", "contains", "propertyNames",
+                "not", "if", "then", "else", "contentSchema"):
+        if key in out:
+            value = out[key]
+            out[key] = ([normalize_bridge_schema(child) for child in value]
+                        if isinstance(value, list) else normalize_bridge_schema(value))
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        if isinstance(out.get(key), list):
+            out[key] = [normalize_bridge_schema(child) for child in out[key]]
+    values = out.get("enum")
+    if isinstance(values, list) and values and not all(isinstance(v, str) and v for v in values):
+        del out["enum"]
+        if (out.get("type") in ("integer", "number") and len(values) == 1
+                and isinstance(values[0], (int, float)) and not isinstance(values[0], bool)):
+            value = values[0]
+            out["minimum"] = max(out.get("minimum", value), value)
+            out["maximum"] = min(out.get("maximum", value), value)
+    return out
+
+
 def compact_bridge_tool(tool: dict) -> dict:
     """Keep one MCP tool schema under agy's eager size threshold.
 
-    Every parameter name, type, required list and enum survives; only prose
-    descriptions are shortened (the full text goes into the system prompt).
+    Parameter names, types and required lists survive. Unsupported enums are
+    projected without changing value types; their original constraints and
+    full prose contracts go into the system prompt.
     """
+    tool = {**tool, "inputSchema": normalize_bridge_schema(tool.get("inputSchema") or {})}
     if _wire_bytes(tool) <= MAX_EAGER_BRIDGE_TOOL_BYTES:
         return tool
     first = {
@@ -374,12 +414,21 @@ def raw_bridge_tools(openai_tools: Any) -> list[dict]:
 
 
 def render_full_tool_contracts(tools: list[dict]) -> str:
-    """Full prose contracts of the tools whose MCP declarations had to be compacted."""
+    """Full contracts for tools with compacted prose or projected enum constraints."""
     sections: list[str] = []
     for tool in tools:
-        if _wire_bytes(tool) <= MAX_EAGER_BRIDGE_TOOL_BYTES:
+        schema = tool.get("inputSchema") or {}
+        projected = normalize_bridge_schema(schema)
+        enum_adapted = projected != schema
+        if not enum_adapted and _wire_bytes({**tool, "inputSchema": projected}) <= MAX_EAGER_BRIDGE_TOOL_BYTES:
             continue
         lines = [f"### {AGENT_TOOL_PREFIX}{tool['name']}"]
+        if enum_adapted:
+            lines.append(
+                "Original parameter constraints (JSON; preserve value types). "
+                "The MCP declaration projects enums unsupported by the upstream API; "
+                "these allowed values still apply:\n" + json.dumps(schema, ensure_ascii=False)
+            )
         description = (tool.get("description") or "").strip()
         if description:
             lines.append(description)
@@ -421,7 +470,7 @@ def bridge_system_prompt(system: str, tools: list[dict]) -> str:
     contracts = render_full_tool_contracts(tools)
     if contracts:
         parts.append(
-            "<astrbot_tool_contracts>\nFull specifications for AstrBot tools whose MCP schemas were compacted:\n\n"
+            "<astrbot_tool_contracts>\nFull specifications for AstrBot tools whose MCP schemas were compacted or enum constraints projected:\n\n"
             f"{contracts}\n</astrbot_tool_contracts>"
         )
     return "\n\n".join(parts)

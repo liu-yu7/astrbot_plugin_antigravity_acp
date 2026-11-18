@@ -220,6 +220,8 @@ class Turn:
             self.agent_failure = AgyError(
                 verdict.code, verdict.message, retryable=verdict.code in ("TRANSPORT", "RATE_LIMIT")
             )
+            if verdict.code == "RESOURCE_EXHAUSTED":
+                self.events.push(("error", self.agent_failure))
             return
         if combined.strip():
             self.agent_failure = None

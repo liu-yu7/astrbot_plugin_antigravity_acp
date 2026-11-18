@@ -194,6 +194,11 @@ class FakeAgy:
 
     async def run_prompt(self, session: dict, text: str) -> dict:
         session["cancelled"] = False
+        if text.split("</astrbot_history>")[-1].strip() == "RESOURCE_FAILURE":
+            for part in ("\n⚠ API error (attempt 1): RESO", "URCE_EXHAUSTED (code 429): Resource exhausted.\n"):
+                self.update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": part}})
+            await asyncio.sleep(2)
+            return {"stopReason": "end_turn", "usage": {"totalTokens": 0}}
         if text.split("</astrbot_history>")[-1].strip() == "EXECUTION_FAILURE":
             for part in (chr(10) + "⚠ Agent execution ", "terminated due ", "to error." + chr(10)):
                 self.update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": part}})

@@ -17,6 +17,7 @@ agy_acp/
   preflight.py          Isolated agent/settings and credential-file preparation
   notices.py            Agent retry/failure notice handling
   safety.py             Exact default safety-prefix compatibility adaptation
+  prompts.py            Exact Linux host-tools template compatibility adaptation
 tests/                  Fake CLI, policy tests, and provider smoke test
 tools/                  Optional local diagnostics/configuration helpers
 ```
@@ -52,14 +53,16 @@ python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements-dev.txt
 python tests/context_tests.py
+python tests/schema_tests.py
 python tests/run_tests.py
 python tests/provider_smoke.py
 ```
 
-For context policy tests alone, the standard library is sufficient:
+For context policy and schema projection tests alone, the standard library is sufficient:
 
 ```bash
 python tests/context_tests.py
+python tests/schema_tests.py
 ```
 
 The fake CLI performs no Google authentication and contacts only the temporary test MCP server. Test logs and temporary roots are not release data. No real tokens or server access are needed for CI.
